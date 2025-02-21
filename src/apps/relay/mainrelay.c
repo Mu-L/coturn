@@ -38,13 +38,6 @@
 
 #define WORKING_BUFFER_SIZE 15000
 #define MAX_TRIES 3
-
-#define MALLOC(x) HeapAlloc(GetProcessHeap(), 0, (x))
-#define FREE(x) HeapFree(GetProcessHeap(), 0, (x))
-#endif
-
-#if (!defined OPENSSL_VERSION_1_1_1)
-#define OPENSSL_VERSION_1_1_1 0x10101000L
 #endif
 
 ////// TEMPORARY data //////////
@@ -58,13 +51,9 @@ static int use_tltc = 0;
 
 ////// ALPN //////////
 
-#if ALPN_SUPPORTED
-
 char STUN_ALPN[128] = "stun.nat-discovery";
 char TURN_ALPN[128] = "stun.turn";
 char HTTP_ALPN[128] = "http/1.1";
-
-#endif
 
 ////// TURNDB //////////////
 
@@ -98,23 +87,24 @@ turn_params_t turn_params = {
     "",                     /*ca_cert_file*/
     "turn_server_cert.pem", /*cert_file*/
     "turn_server_pkey.pem", /*pkey_file*/
+    false,                  /*rpk_enabled*/
     "",                     /*tls_password*/
     "",                     /*dh_file*/
 
-    0, /*no_tlsv1*/
-    0, /*no_tlsv1_1*/
-    0, /*no_tlsv1_2*/
-       /*no_tls*/
+    false, /*no_tlsv1*/
+    false, /*no_tlsv1_1*/
+    false, /*no_tlsv1_2*/
+           /*no_tls*/
 #if !TLS_SUPPORTED
-    1,
+    true,
 #else
-    0,
+    false,
 #endif
 /*no_dtls*/
 #if !DTLS_SUPPORTED
-    1,
+    true,
 #else
-    0,
+    false,
 #endif
 
     NULL,      /*tls_ctx_update_ev*/
@@ -122,11 +112,11 @@ turn_params_t turn_params = {
 
     //////////////// Common params ////////////////////
     TURN_VERBOSE_NONE, /* verbose */
-    0,                 /* turn_daemon */
-    0,                 /* no_software_attribute */
-    0,                 /* web_admin_listen_on_workers */
+    false,             /* turn_daemon */
+    false,             /* no_software_attribute */
+    false,             /* web_admin_listen_on_workers */
 
-    0, /* do_not_use_config_file */
+    false, /* do_not_use_config_file */
 
     "/var/run/turnserver.pid", /* pidfile */
     "",                        /* acme_redirect */
@@ -138,19 +128,19 @@ turn_params_t turn_params = {
     0,                     /* alt_listener_port */
     0,                     /* alt_tls_listener_port */
     0,                     /* tcp_proxy_port */
-    1,                     /* rfc5780 */
+    true,                  /* rfc5780 */
 
-    0, /* no_udp */
-    0, /* no_tcp */
-    0, /* tcp_use_proxy */
+    false, /* no_udp */
+    false, /* no_tcp */
+    false, /* tcp_use_proxy */
 
-    0, /* no_tcp_relay */
-    0, /* no_udp_relay */
+    false, /* no_tcp_relay */
+    false, /* no_udp_relay */
 
     "", /*listener_ifname*/
 
     {"", ""},                                                                 /*redis_statsdb*/
-    0,                                                                        /*use_redis_statsdb*/
+    false,                                                                    /*use_redis_statsdb*/
     {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, NULL, NULL, NULL}, /*listener*/
     {NULL, 0},                                                                /*ip_whitelist*/
     {NULL, 0},                                                                /*ip_blacklist*/
@@ -162,10 +152,10 @@ turn_params_t turn_params = {
     LOW_DEFAULT_PORTS_BOUNDARY,  /*min_port*/
     HIGH_DEFAULT_PORTS_BOUNDARY, /*max_port*/
 
-    0, /*check_origin*/
+    false, /*check_origin*/
 
-    0, /*no_multicast_peers*/
-    0, /*allow_loopback_peers*/
+    false, /*no_multicast_peers*/
+    false, /*allow_loopback_peers*/
 
     "",   /*relay_ifname*/
     0,    /*relays_number*/
@@ -190,12 +180,13 @@ turn_params_t turn_params = {
     {NULL, 0, {0, NULL}}, /*tls_alternate_servers_list*/
 
     /////////////// stop server ////////////////
-    0, /*stop_turn_server*/
+    false, /*drain_turn_server*/
+    false, /*stop_turn_server*/
 
     /////////////// MISC PARAMS ////////////////
-    0,                                  /* stun_only */
-    0,                                  /* no_stun */
-    0,                                  /* secure_stun */
+    false,                              /* stun_only */
+    false,                              /* no_stun */
+    false,                              /* secure_stun */
     0,                                  /* server_relay */
     0,                                  /* fingerprint */
     ':',                                /* rest_api_separator */
@@ -203,17 +194,19 @@ turn_params_t turn_params = {
     STUN_DEFAULT_MAX_ALLOCATE_LIFETIME, /* max_allocate_lifetime */
     STUN_DEFAULT_CHANNEL_LIFETIME,      /* channel_lifetime */
     STUN_DEFAULT_PERMISSION_LIFETIME,   /* permission_lifetime */
-    0,                                  /* mobility */
+    false,                              /* mobility */
     TURN_CREDENTIALS_NONE,              /* ct */
-    0,                                  /* use_auth_secret_with_timestamp */
+    false,                              /* use_auth_secret_with_timestamp */
     0,                                  /* max_bps */
     0,                                  /* bps_capacity */
     0,                                  /* bps_capacity_allocated */
     0,                                  /* total_quota */
     0,                                  /* user_quota */
-    0,                                  /* prometheus disabled by default */
+    false,                              /* prometheus disabled by default */
     DEFAULT_PROM_SERVER_PORT,           /* prometheus port */
-    0, /* prometheus username labelling disabled by default when prometheus is enabled */
+    "",                                 /* prometheus address */
+    "/metrics",                         /* prometheus path */
+    false, /* prometheus username labelling disabled by default when prometheus is enabled */
 
     ///////////// Users DB //////////////
     {(TURN_USERDB_TYPE)0, {"\0", "\0"}, {0, NULL, {NULL, 0}}},
@@ -225,13 +218,14 @@ turn_params_t turn_params = {
     "",                                     /* secret_key_file */
     "",                                     /* secret_key */
     ALLOCATION_DEFAULT_ADDRESS_FAMILY_IPV4, /* allocation_default_address_family */
-    0,                                      /* no_auth_pings */
-    0,                                      /* no_dynamic_ip_list */
-    0,                                      /* no_dynamic_realms */
+    false,                                  /* no_auth_pings */
+    false,                                  /* no_dynamic_ip_list */
+    false,                                  /* no_dynamic_realms */
 
-    0, /* log_binding */
-    0, /* no_stun_backward_compatibility */
-    0  /* response_origin_only_with_rfc5780 */
+    false, /* log_binding */
+    false, /* no_stun_backward_compatibility */
+    false, /* response_origin_only_with_rfc5780 */
+    false  /* respond_http_unsupported */
 };
 
 //////////////// OpenSSL Init //////////////////////
@@ -263,6 +257,7 @@ static void read_config_file(int argc, char **argv, int pass);
 static void reload_ssl_certs(evutil_socket_t sock, short events, void *args);
 
 static void shutdown_handler(evutil_socket_t sock, short events, void *args);
+static void drain_handler(evutil_socket_t sock, short events, void *args);
 
 //////////////////////////////////////////////////
 
@@ -299,7 +294,7 @@ static int make_local_listeners_list(void) {
 
   do {
 
-    pAddresses = (IP_ADAPTER_ADDRESSES *)MALLOC(outBufLen);
+    pAddresses = (IP_ADAPTER_ADDRESSES *)malloc(outBufLen);
     if (pAddresses == NULL) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Memory allocation failed for IP_ADAPTER_ADDRESSES struct\n");
       return -1;
@@ -308,7 +303,7 @@ static int make_local_listeners_list(void) {
     dwRetVal = GetAdaptersAddresses(family, flags, NULL, pAddresses, &outBufLen);
 
     if (dwRetVal == ERROR_BUFFER_OVERFLOW) {
-      FREE(pAddresses);
+      free(pAddresses);
       pAddresses = NULL;
     } else {
       break;
@@ -328,6 +323,11 @@ static int make_local_listeners_list(void) {
       printf("\tIfIndex (IPv4 interface): %u\n", pCurrAddresses->IfIndex);
       printf("\tAdapter name: %s\n", pCurrAddresses->AdapterName);//*/
 
+      if (pCurrAddresses->OperStatus != IfOperStatusUp) {
+        pCurrAddresses = pCurrAddresses->Next;
+        continue;
+      }
+
       pUnicast = pCurrAddresses->FirstUnicastAddress;
       if (pUnicast != NULL) {
         // printf("\tNumber of Unicast Addresses:\n");
@@ -336,30 +336,38 @@ static int make_local_listeners_list(void) {
           if (AF_INET == pUnicast->Address.lpSockaddr->sa_family) // IPV4
           {
             if (!inet_ntop(PF_INET, &((struct sockaddr_in *)pUnicast->Address.lpSockaddr)->sin_addr, saddr,
-                           INET6_ADDRSTRLEN))
+                           INET6_ADDRSTRLEN)) {
               continue;
-            if (strstr(saddr, "169.254.") == saddr)
+            }
+            if (strstr(saddr, "169.254.") == saddr) {
               continue;
-            if (!strcmp(saddr, "0.0.0.0"))
+            }
+            if (!strcmp(saddr, "0.0.0.0")) {
               continue;
+            }
           } else if (AF_INET6 == pUnicast->Address.lpSockaddr->sa_family) // IPV6
           {
             if (!inet_ntop(PF_INET6, &((struct sockaddr_in6 *)pUnicast->Address.lpSockaddr)->sin6_addr, saddr,
-                           INET6_ADDRSTRLEN))
+                           INET6_ADDRSTRLEN)) {
               continue;
-            if (strstr(saddr, "fe80") == saddr)
+            }
+            if (strstr(saddr, "fe80") == saddr) {
               continue;
-            if (!strcmp(saddr, "::"))
+            }
+            if (!strcmp(saddr, "::")) {
               continue;
-          } else
+            }
+          } else {
             continue;
+          }
 
           // printf("\t\tIP: %s\n", saddr);
 
           add_listener_addr(saddr);
 
-          if (MIB_IF_TYPE_LOOPBACK != pCurrAddresses->IfType)
+          if (MIB_IF_TYPE_LOOPBACK != pCurrAddresses->IfType) {
             ret++;
+          }
         }
       }
       /*
@@ -458,9 +466,9 @@ static int make_local_listeners_list(void) {
     }
   } else {
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Call to GetAdaptersAddresses failed with error: %d\n", dwRetVal);
-    if (dwRetVal == ERROR_NO_DATA)
+    if (dwRetVal == ERROR_NO_DATA) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "\tNo addresses were found for the requested parameters\n");
-    else {
+    } else {
 
       if (FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
                         NULL, dwRetVal, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
@@ -468,15 +476,16 @@ static int make_local_listeners_list(void) {
                         (LPTSTR)&lpMsgBuf, 0, NULL)) {
         TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "\tError: %s", lpMsgBuf);
         LocalFree(lpMsgBuf);
-        if (pAddresses)
-          FREE(pAddresses);
+        if (pAddresses) {
+          free(pAddresses);
+        }
         return -2;
       }
     }
   }
 
   if (pAddresses) {
-    FREE(pAddresses);
+    free(pAddresses);
   }
 
 #else
@@ -489,34 +498,43 @@ static int make_local_listeners_list(void) {
 
     for (ifa = ifs; ifa != NULL; ifa = ifa->ifa_next) {
 
-      if (!(ifa->ifa_flags & IFF_UP))
+      if (!(ifa->ifa_flags & IFF_UP)) {
         continue;
+      }
 
-      if (!(ifa->ifa_addr))
+      if (!(ifa->ifa_addr)) {
         continue;
+      }
 
       if (ifa->ifa_addr->sa_family == AF_INET) {
-        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr, saddr, INET_ADDRSTRLEN))
+        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr, saddr, INET_ADDRSTRLEN)) {
           continue;
-        if (strstr(saddr, "169.254.") == saddr)
+        }
+        if (strstr(saddr, "169.254.") == saddr) {
           continue;
-        if (!strcmp(saddr, "0.0.0.0"))
+        }
+        if (!strcmp(saddr, "0.0.0.0")) {
           continue;
+        }
       } else if (ifa->ifa_addr->sa_family == AF_INET6) {
-        if (!inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr, saddr, INET6_ADDRSTRLEN))
+        if (!inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr, saddr, INET6_ADDRSTRLEN)) {
           continue;
-        if (strstr(saddr, "fe80") == saddr)
+        }
+        if (strstr(saddr, "fe80") == saddr) {
           continue;
-        if (!strcmp(saddr, "::"))
+        }
+        if (!strcmp(saddr, "::")) {
           continue;
+        }
       } else {
         continue;
       }
 
       add_listener_addr(saddr);
 
-      if (!(ifa->ifa_flags & IFF_LOOPBACK))
+      if (!(ifa->ifa_flags & IFF_LOOPBACK)) {
         ret++;
+      }
     }
     freeifaddrs(ifs);
   }
@@ -550,7 +568,7 @@ static int make_local_relays_list(int allow_local, int family) {
 
   do {
 
-    pAddresses = (IP_ADAPTER_ADDRESSES *)MALLOC(outBufLen);
+    pAddresses = (IP_ADAPTER_ADDRESSES *)malloc(outBufLen);
     if (pAddresses == NULL) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Memory allocation failed for IP_ADAPTER_ADDRESSES struct\n");
       return -1;
@@ -559,7 +577,7 @@ static int make_local_relays_list(int allow_local, int family) {
     dwRetVal = GetAdaptersAddresses(fm, flags, NULL, pAddresses, &outBufLen);
 
     if (dwRetVal == ERROR_BUFFER_OVERFLOW) {
-      FREE(pAddresses);
+      free(pAddresses);
       pAddresses = NULL;
     } else {
       break;
@@ -579,39 +597,54 @@ static int make_local_relays_list(int allow_local, int family) {
       printf("\tIfIndex (IPv4 interface): %u\n", pCurrAddresses->IfIndex);
       printf("\tAdapter name: %s\n", pCurrAddresses->AdapterName);//*/
 
+      if (pCurrAddresses->OperStatus != IfOperStatusUp) {
+        pCurrAddresses = pCurrAddresses->Next;
+        continue;
+      }
+
       pUnicast = pCurrAddresses->FirstUnicastAddress;
       if (pUnicast != NULL) {
         // printf("\tNumber of Unicast Addresses:\n");
         for (; pUnicast != NULL; pUnicast = pUnicast->Next) {
-          if (!allow_local && (MIB_IF_TYPE_LOOPBACK == pCurrAddresses->IfType))
+          if (!allow_local && (MIB_IF_TYPE_LOOPBACK == pCurrAddresses->IfType)) {
             continue;
+          }
 
           char saddr[INET6_ADDRSTRLEN] = "";
           if (AF_INET == pUnicast->Address.lpSockaddr->sa_family) // IPV4
           {
-            if (family != AF_INET)
+            if (family != AF_INET) {
               continue;
+            }
             if (!inet_ntop(PF_INET, &((struct sockaddr_in *)pUnicast->Address.lpSockaddr)->sin_addr, saddr,
-                           INET6_ADDRSTRLEN))
+                           INET6_ADDRSTRLEN)) {
               continue;
-            if (strstr(saddr, "169.254.") == saddr)
+            }
+            if (strstr(saddr, "169.254.") == saddr) {
               continue;
-            if (!strcmp(saddr, "0.0.0.0"))
+            }
+            if (!strcmp(saddr, "0.0.0.0")) {
               continue;
+            }
           } else if (AF_INET6 == pUnicast->Address.lpSockaddr->sa_family) // IPV6
           {
-            if (family != AF_INET6)
+            if (family != AF_INET6) {
               continue;
+            }
 
             if (!inet_ntop(PF_INET6, &((struct sockaddr_in6 *)pUnicast->Address.lpSockaddr)->sin6_addr, saddr,
-                           INET6_ADDRSTRLEN))
+                           INET6_ADDRSTRLEN)) {
               continue;
-            if (strstr(saddr, "fe80") == saddr)
+            }
+            if (strstr(saddr, "fe80") == saddr) {
               continue;
-            if (!strcmp(saddr, "::"))
+            }
+            if (!strcmp(saddr, "::")) {
               continue;
-          } else
+            }
+          } else {
             continue;
+          }
 
           if (add_relay_addr(saddr) > 0) {
             counter += 1;
@@ -623,7 +656,7 @@ static int make_local_relays_list(int allow_local, int family) {
   }
 
   if (pAddresses) {
-    FREE(pAddresses);
+    free(pAddresses);
   }
 #else
   struct ifaddrs *ifs = NULL;
@@ -636,41 +669,54 @@ static int make_local_relays_list(int allow_local, int family) {
   if (ifs) {
     for (ifa = ifs; ifa != NULL; ifa = ifa->ifa_next) {
 
-      if (!(ifa->ifa_flags & IFF_UP))
+      if (!(ifa->ifa_flags & IFF_UP)) {
         continue;
+      }
 
-      if (!(ifa->ifa_name))
+      if (!(ifa->ifa_name)) {
         continue;
-      if (!(ifa->ifa_addr))
+      }
+      if (!(ifa->ifa_addr)) {
         continue;
+      }
 
-      if (!allow_local && (ifa->ifa_flags & IFF_LOOPBACK))
+      if (!allow_local && (ifa->ifa_flags & IFF_LOOPBACK)) {
         continue;
+      }
 
       if (ifa->ifa_addr->sa_family == AF_INET) {
 
-        if (family != AF_INET)
+        if (family != AF_INET) {
           continue;
+        }
 
-        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr, saddr, INET_ADDRSTRLEN))
+        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr, saddr, INET_ADDRSTRLEN)) {
           continue;
-        if (strstr(saddr, "169.254.") == saddr)
+        }
+        if (strstr(saddr, "169.254.") == saddr) {
           continue;
-        if (!strcmp(saddr, "0.0.0.0"))
+        }
+        if (!strcmp(saddr, "0.0.0.0")) {
           continue;
+        }
       } else if (ifa->ifa_addr->sa_family == AF_INET6) {
 
-        if (family != AF_INET6)
+        if (family != AF_INET6) {
           continue;
+        }
 
-        if (!inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr, saddr, INET6_ADDRSTRLEN))
+        if (!inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr, saddr, INET6_ADDRSTRLEN)) {
           continue;
-        if (strstr(saddr, "fe80") == saddr)
+        }
+        if (strstr(saddr, "fe80") == saddr) {
           continue;
-        if (!strcmp(saddr, "::"))
+        }
+        if (!strcmp(saddr, "::")) {
           continue;
-      } else
+        }
+      } else {
         continue;
+      }
 
       if (add_relay_addr(saddr) > 0) {
         counter += 1;
@@ -707,8 +753,7 @@ int get_a_local_relay(int family, ioa_addr *relay_addr) {
   outBufLen = WORKING_BUFFER_SIZE;
 
   do {
-
-    pAddresses = (IP_ADAPTER_ADDRESSES *)MALLOC(outBufLen);
+    pAddresses = (IP_ADAPTER_ADDRESSES *)malloc(outBufLen);
     if (pAddresses == NULL) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Memory allocation failed for IP_ADAPTER_ADDRESSES struct\n");
       return -1;
@@ -717,7 +762,7 @@ int get_a_local_relay(int family, ioa_addr *relay_addr) {
     dwRetVal = GetAdaptersAddresses(fm, flags, NULL, pAddresses, &outBufLen);
 
     if (dwRetVal == ERROR_BUFFER_OVERFLOW) {
-      FREE(pAddresses);
+      free(pAddresses);
       pAddresses = NULL;
     } else {
       break;
@@ -736,35 +781,45 @@ int get_a_local_relay(int family, ioa_addr *relay_addr) {
       if (pUnicast != NULL) {
         // printf("\tNumber of Unicast Addresses:\n");
         for (; pUnicast != NULL; pUnicast = pUnicast->Next) {
-          if (!allow_local && (MIB_IF_TYPE_LOOPBACK == pCurrAddresses->IfType))
+          if (!allow_local && (MIB_IF_TYPE_LOOPBACK == pCurrAddresses->IfType)) {
             continue;
+          }
 
           char saddr[INET6_ADDRSTRLEN] = "";
           if (AF_INET == pUnicast->Address.lpSockaddr->sa_family) // IPV4
           {
-            if (family != AF_INET)
+            if (family != AF_INET) {
               continue;
+            }
             if (!inet_ntop(PF_INET, &((struct sockaddr_in *)pUnicast->Address.lpSockaddr)->sin_addr, saddr,
-                           INET6_ADDRSTRLEN))
+                           INET6_ADDRSTRLEN)) {
               continue;
-            if (strstr(saddr, "169.254.") == saddr)
+            }
+            if (strstr(saddr, "169.254.") == saddr) {
               continue;
-            if (!strcmp(saddr, "0.0.0.0"))
+            }
+            if (!strcmp(saddr, "0.0.0.0")) {
               continue;
+            }
           } else if (AF_INET6 == pUnicast->Address.lpSockaddr->sa_family) // IPV6
           {
-            if (family != AF_INET6)
+            if (family != AF_INET6) {
               continue;
+            }
 
             if (!inet_ntop(PF_INET6, &((struct sockaddr_in6 *)pUnicast->Address.lpSockaddr)->sin6_addr, saddr,
-                           INET6_ADDRSTRLEN))
+                           INET6_ADDRSTRLEN)) {
               continue;
-            if (strstr(saddr, "fe80") == saddr)
+            }
+            if (strstr(saddr, "fe80") == saddr) {
               continue;
-            if (!strcmp(saddr, "::"))
+            }
+            if (!strcmp(saddr, "::")) {
               continue;
-          } else
+            }
+          } else {
             continue;
+          }
 
           if (make_ioa_addr((const uint8_t *)saddr, 0, relay_addr) < 0) {
             continue;
@@ -784,8 +839,9 @@ int get_a_local_relay(int family, ioa_addr *relay_addr) {
   }
 
   if (pAddresses) {
-    FREE(pAddresses);
+    free(pAddresses);
   }
+  return -1;
 #else
   struct ifaddrs *ifs = NULL;
 
@@ -795,48 +851,57 @@ int get_a_local_relay(int family, ioa_addr *relay_addr) {
 
   if (ifs) {
 
-  galr_start :
+  galr_start:
+    for (struct ifaddrs *ifa = ifs; ifa != NULL; ifa = ifa->ifa_next) {
 
-  {
-    struct ifaddrs *ifa = NULL;
-
-    for (ifa = ifs; ifa != NULL; ifa = ifa->ifa_next) {
-
-      if (!(ifa->ifa_flags & IFF_UP))
+      if (!(ifa->ifa_flags & IFF_UP)) {
         continue;
+      }
 
-      if (!(ifa->ifa_name))
+      if (!(ifa->ifa_name)) {
         continue;
-      if (!(ifa->ifa_addr))
+      }
+      if (!(ifa->ifa_addr)) {
         continue;
+      }
 
-      if (!allow_local && (ifa->ifa_flags & IFF_LOOPBACK))
+      if (!allow_local && (ifa->ifa_flags & IFF_LOOPBACK)) {
         continue;
+      }
 
       if (ifa->ifa_addr->sa_family == AF_INET) {
 
-        if (family != AF_INET)
+        if (family != AF_INET) {
           continue;
+        }
 
-        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr, saddr, INET_ADDRSTRLEN))
+        if (!inet_ntop(AF_INET, &((struct sockaddr_in *)ifa->ifa_addr)->sin_addr, saddr, INET_ADDRSTRLEN)) {
           continue;
-        if (strstr(saddr, "169.254.") == saddr)
+        }
+        if (strstr(saddr, "169.254.") == saddr) {
           continue;
-        if (!strcmp(saddr, "0.0.0.0"))
+        }
+        if (!strcmp(saddr, "0.0.0.0")) {
           continue;
+        }
       } else if (ifa->ifa_addr->sa_family == AF_INET6) {
 
-        if (family != AF_INET6)
+        if (family != AF_INET6) {
           continue;
+        }
 
-        if (!inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr, saddr, INET6_ADDRSTRLEN))
+        if (!inet_ntop(AF_INET6, &((struct sockaddr_in6 *)ifa->ifa_addr)->sin6_addr, saddr, INET6_ADDRSTRLEN)) {
           continue;
-        if (strstr(saddr, "fe80") == saddr)
+        }
+        if (strstr(saddr, "fe80") == saddr) {
           continue;
-        if (!strcmp(saddr, "::"))
+        }
+        if (!strcmp(saddr, "::")) {
           continue;
-      } else
+        }
+      } else {
         continue;
+      }
 
       if (make_ioa_addr((const uint8_t *)saddr, 0, relay_addr) < 0) {
         continue;
@@ -845,7 +910,6 @@ int get_a_local_relay(int family, ioa_addr *relay_addr) {
         break;
       }
     }
-  }
 
     if (ret < 0 && !allow_local) {
       allow_local = 1;
@@ -958,7 +1022,8 @@ static char Usage[] =
     " -v, --verbose					'Moderate' verbose mode.\n"
     " -V, --Verbose					Extra verbose mode, very annoying (for debug purposes only).\n"
     " -o, --daemon					Start process as daemon (detach from current shell).\n"
-    " --no-software-attribute	 		Production mode: hide the software version (formerly --prod).\n"
+    " --no-software-attribute	 		DEPRECATED Production mode: hide the software version.\n"
+    " --software-attribute	 		Enable sending software attribute (for debugging).\n"
     " -f, --fingerprint				Use fingerprints in the TURN messages.\n"
     " -a, --lt-cred-mech				Use the long-term credential mechanism.\n"
     " -z, --no-auth					Do not use any credential mechanism, allow anonymous access.\n"
@@ -1068,6 +1133,8 @@ static char Usage[] =
     "enabled it will listen on port 9641 under the path /metrics\n"
     "						also the path / on this port can be used as a health check\n"
     " --prometheus-port		<port>		Prometheus metrics port (Default: 9641).\n"
+    " --prometheus-address		<address>		Prometheus listening address (Default: any).\n"
+    " --prometheus-path		<path>		Prometheus serve path (Default: /metrics).\n"
     " --prometheus-username-labels			When metrics are enabled, add labels with client usernames.\n"
 #endif
     " --use-auth-secret				TURN REST API flag.\n"
@@ -1271,6 +1338,10 @@ static char Usage[] =
     "						in binding response (use only the XOR-MAPPED-ADDRESS).\n"
     " --response-origin-only-with-rfc5780		Only send RESPONSE-ORIGIN attribute in binding response if "
     "RFC5780 is enabled.\n"
+    " --respond-http-unsupported			Return an HTTP reponse with a 400 status code to HTTP "
+    "connections made to ports not\n"
+    "						supporting HTTP. The default behaviour is to immediately "
+    "close the connection.\n"
     " --version					Print version (and exit).\n"
     " -h						Help\n"
     "\n";
@@ -1351,6 +1422,7 @@ enum EXTRA_OPTS {
   ALT_PORT_OPT,
   ALT_TLS_PORT_OPT,
   CERT_FILE_OPT,
+  RPK_ENABLED_OPT,
   PKEY_FILE_OPT,
   PKEY_PWD_OPT,
   MIN_PORT_OPT,
@@ -1361,6 +1433,8 @@ enum EXTRA_OPTS {
   PERMISSION_LIFETIME_OPT,
   PROMETHEUS_OPT,
   PROMETHEUS_PORT_OPT,
+  PROMETHEUS_ADDRESS_OPT,
+  PROMETHEUS_PATH_OPT,
   PROMETHEUS_ENABLE_USERNAMES_OPT,
   AUTH_SECRET_OPT,
   NO_AUTH_PINGS_OPT,
@@ -1368,7 +1442,6 @@ enum EXTRA_OPTS {
   NO_DYNAMIC_REALMS_OPT,
   DEL_ALL_AUTH_SECRETS_OPT,
   STATIC_AUTH_SECRET_VAL_OPT,
-  AUTH_SECRET_TS_EXP, /* deprecated */
   NO_STDOUT_LOG_OPT,
   SYSLOG_OPT,
   SYSLOG_FACILITY_OPT,
@@ -1407,8 +1480,6 @@ enum EXTRA_OPTS {
   DH566_OPT,
   DH1066_OPT,
   NE_TYPE_OPT,
-  NO_SSLV2_OPT, /*deprecated*/
-  NO_SSLV3_OPT, /*deprecated*/
   NO_TLSV1_OPT,
   NO_TLSV1_1_OPT,
   NO_TLSV1_2_OPT,
@@ -1418,7 +1489,8 @@ enum EXTRA_OPTS {
   ADMIN_USER_QUOTA_OPT,
   SERVER_NAME_OPT,
   OAUTH_OPT,
-  NO_SOFTWARE_ATTRIBUTE_OPT,
+  SOFTWARE_ATTRIBUTE_OPT,
+  DEPRECATED_NO_SOFTWARE_ATTRIBUTE_OPT,
   NO_HTTP_OPT,
   SECRET_KEY_OPT,
   ACME_REDIRECT_OPT,
@@ -1426,6 +1498,7 @@ enum EXTRA_OPTS {
   NO_RFC5780,
   NO_STUN_BACKWARD_COMPATIBILITY_OPT,
   RESPONSE_ORIGIN_ONLY_WITH_RFC5780_OPT,
+  RESPOND_HTTP_UNSUPPORTED_OPT,
   VERSION_OPT
 };
 
@@ -1480,6 +1553,8 @@ static const struct myoption long_options[] = {
 #if !defined(TURN_NO_PROMETHEUS)
     {"prometheus", optional_argument, NULL, PROMETHEUS_OPT},
     {"prometheus-port", optional_argument, NULL, PROMETHEUS_PORT_OPT},
+    {"prometheus-address", optional_argument, NULL, PROMETHEUS_ADDRESS_OPT},
+    {"prometheus-path", optional_argument, NULL, PROMETHEUS_PATH_OPT},
     {"prometheus-username-labels", optional_argument, NULL, PROMETHEUS_ENABLE_USERNAMES_OPT},
 #endif
     {"use-auth-secret", optional_argument, NULL, AUTH_SECRET_OPT},
@@ -1487,7 +1562,6 @@ static const struct myoption long_options[] = {
     {"no-auth-pings", optional_argument, NULL, NO_AUTH_PINGS_OPT},
     {"no-dynamic-ip-list", optional_argument, NULL, NO_DYNAMIC_IP_LIST_OPT},
     {"no-dynamic-realms", optional_argument, NULL, NO_DYNAMIC_REALMS_OPT},
-    /* deprecated: */ {"secret-ts-exp-time", optional_argument, NULL, AUTH_SECRET_TS_EXP},
     {"realm", required_argument, NULL, 'r'},
     {"server-name", required_argument, NULL, SERVER_NAME_OPT},
     {"oauth", optional_argument, NULL, OAUTH_OPT},
@@ -1498,8 +1572,8 @@ static const struct myoption long_options[] = {
     {"verbose", optional_argument, NULL, 'v'},
     {"Verbose", optional_argument, NULL, 'V'},
     {"daemon", optional_argument, NULL, 'o'},
-    /* deprecated: */ {"prod", optional_argument, NULL, NO_SOFTWARE_ATTRIBUTE_OPT},
-    {"no-software-attribute", optional_argument, NULL, NO_SOFTWARE_ATTRIBUTE_OPT},
+    /* deprecated: */ {"no-software-attribute", optional_argument, NULL, DEPRECATED_NO_SOFTWARE_ATTRIBUTE_OPT},
+    {"software-attribute", optional_argument, NULL, SOFTWARE_ATTRIBUTE_OPT},
     {"fingerprint", optional_argument, NULL, 'f'},
     {"check-origin-consistency", optional_argument, NULL, CHECK_ORIGIN_CONSISTENCY_OPT},
     {"no-udp", optional_argument, NULL, NO_UDP_OPT},
@@ -1515,6 +1589,7 @@ static const struct myoption long_options[] = {
     {"stun-only", optional_argument, NULL, 'S'},
     {"no-stun", optional_argument, NULL, NO_STUN_OPT},
     {"cert", required_argument, NULL, CERT_FILE_OPT},
+    {"raw-public-keys", optional_argument, NULL, RPK_ENABLED_OPT},
     {"pkey", required_argument, NULL, PKEY_FILE_OPT},
     {"pkey-pwd", required_argument, NULL, PKEY_PWD_OPT},
     {"log-file", required_argument, NULL, 'l'},
@@ -1555,8 +1630,6 @@ static const struct myoption long_options[] = {
     {"dh566", optional_argument, NULL, DH566_OPT},
     {"dh1066", optional_argument, NULL, DH1066_OPT},
     {"ne", required_argument, NULL, NE_TYPE_OPT},
-    {"no-sslv2", optional_argument, NULL, NO_SSLV2_OPT}, /* deprecated */
-    {"no-sslv3", optional_argument, NULL, NO_SSLV3_OPT}, /* deprecated */
     {"no-tlsv1", optional_argument, NULL, NO_TLSV1_OPT},
     {"no-tlsv1_1", optional_argument, NULL, NO_TLSV1_1_OPT},
     {"no-tlsv1_2", optional_argument, NULL, NO_TLSV1_2_OPT},
@@ -1568,6 +1641,7 @@ static const struct myoption long_options[] = {
     {"no-rfc5780", optional_argument, NULL, NO_RFC5780},
     {"no-stun-backward-compatibility", optional_argument, NULL, NO_STUN_BACKWARD_COMPATIBILITY_OPT},
     {"response-origin-only-with-rfc5780", optional_argument, NULL, RESPONSE_ORIGIN_ONLY_WITH_RFC5780_OPT},
+    {"respond-http-unsupported", optional_argument, NULL, RESPOND_HTTP_UNSUPPORTED_OPT},
     {"version", optional_argument, NULL, VERSION_OPT},
     {"syslog-facility", required_argument, NULL, SYSLOG_FACILITY_OPT},
     {NULL, no_argument, NULL, 0}};
@@ -1623,9 +1697,9 @@ static const struct myoption admin_long_options[] = {
 
 int init_ctr(struct ctr_state *state, const unsigned char iv[8]) {
   state->num = 0;
-  memset(state->ecount, 0, 16);
-  memset(state->ivec + 8, 0, 8);
+  memset(state->ecount, 0, sizeof(state->ecount));
   memcpy(state->ivec, iv, 8);
+  memset(state->ivec + 8, 0, sizeof(state->ivec) - 8);
   return 1;
 }
 
@@ -1658,12 +1732,8 @@ void encrypt_aes_128(unsigned char *in, const unsigned char *mykey) {
   struct ctr_state state;
   init_ctr(&state, iv);
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
   CRYPTO_ctr128_encrypt(in, out, strlen((char *)in), &key, state.ivec, state.ecount, &state.num,
                         (block128_f)AES_encrypt);
-#else
-  AES_ctr128_encrypt(in, out, strlen((char *)in), &key, state.ivec, state.ecount, &state.num);
-#endif
 
   totalSize += strlen((char *)in);
   size = strlen((char *)in);
@@ -1674,34 +1744,40 @@ void encrypt_aes_128(unsigned char *in, const unsigned char *mykey) {
   unsigned char *base64_encoded = base64encode(total, totalSize);
   printf("%s\n", base64_encoded);
 }
-void generate_aes_128_key(char *filePath, unsigned char *returnedKey) {
-  int i;
-  int part;
-  FILE *fptr;
+static void generate_aes_128_key(char *filePath, unsigned char *returnedKey) {
   char key[16];
-  struct timespec times;
-  clock_gettime(CLOCK_REALTIME, &times);
-  srand(times.tv_nsec);
 
-  for (i = 0; i < 16; i++) {
-    part = (rand() % 3);
-    if (part == 0) {
-      key[i] = (rand() % 10) + 48;
-    }
+  // TODO: Document why this is called...?
+  turn_srandom();
 
-    else if (part == 1) {
-      key[i] = (rand() % 26) + 65;
-    }
-
-    else if (part == 2) {
-      key[i] = (rand() % 26) + 97;
+  for (size_t i = 0; i < 16; ++i) {
+    // TODO: This could be sped up by breaking the
+    // returned random value into multiple 8bit values
+    // instead of getting a new multi-byte random value
+    // for each key index.
+    switch (turn_random() % 3) {
+    case 0:
+      key[i] = (turn_random() % 10) + 48;
+      continue;
+    case 1:
+      key[i] = (turn_random() % 26) + 65;
+      continue;
+    default:
+      key[i] = (turn_random() % 26) + 97;
+      continue;
     }
   }
-  fptr = fopen(filePath, "w");
-  for (i = 0; i < 16; i++) {
+  FILE *fptr = fopen(filePath, "w");
+  if (!fptr) {
+    return;
+  }
+  for (size_t i = 0; i < 16; ++i) {
     fputc(key[i], fptr);
   }
-  STRCPY((char *)returnedKey, key);
+  memcpy(returnedKey, key, 16);
+  // Note: Don't put a nul-terminator at the end.
+  // this function is only ever called with returnedKey
+  // as fixed size char arrays of size 16.
   fclose(fptr);
 }
 
@@ -1718,9 +1794,11 @@ unsigned char *base64decode(const void *b64_decode_this, int decode_this_many_by
   while (0 < BIO_read(b64_bio, base64_decoded + decoded_byte_index, 1)) { // Read byte-by-byte.
     decoded_byte_index++; // Increment the index until read of BIO decoded data is complete.
   }                       // Once we're done reading decoded data, BIO_read returns -1 even though there's no error.
-  BIO_free_all(b64_bio);  // Destroys all BIOs in chain, starting with b64 (i.e. the 1st one).
-  return base64_decoded;  // Returns base-64 decoded data with trailing null terminator.
+
+  BIO_free_all(b64_bio); // Destroys all BIOs in chain, starting with b64 (i.e. the 1st one).
+  return base64_decoded; // Returns base-64 decoded data with trailing null terminator.
 }
+
 int decodedTextSize(char *input) {
   int i = 0;
   int result = 0, padding = 0;
@@ -1733,11 +1811,11 @@ int decodedTextSize(char *input) {
   result = (strlen(input) / 4 * 3) - padding;
   return result;
 }
-void decrypt_aes_128(char *in, const unsigned char *mykey) {
 
+void decrypt_aes_128(char *in, const unsigned char *mykey) {
   unsigned char iv[8] = {0};
   AES_KEY key;
-  unsigned char outdata[256];
+  unsigned char outdata[256] = {0};
   AES_set_encrypt_key(mykey, 128, &key);
   int newTotalSize = decodedTextSize(in);
   int bytes_to_decode = strlen(in);
@@ -1745,38 +1823,40 @@ void decrypt_aes_128(char *in, const unsigned char *mykey) {
   char last[1024] = "";
   struct ctr_state state;
   init_ctr(&state, iv);
-  memset(outdata, '\0', sizeof(outdata));
 
-#if OPENSSL_VERSION_NUMBER >= 0x10100000L
   CRYPTO_ctr128_encrypt(encryptedText, outdata, newTotalSize, &key, state.ivec, state.ecount, &state.num,
                         (block128_f)AES_encrypt);
-#else
-  AES_ctr128_encrypt(encryptedText, outdata, newTotalSize, &key, state.ivec, state.ecount, &state.num);
-#endif
 
   strcat(last, (char *)outdata);
   printf("%s\n", last);
 }
 
 static int get_int_value(const char *s, int default_value) {
-  if (!s || !(s[0]))
+  if (!s || !(s[0])) {
     return default_value;
+  }
   return atoi(s);
 }
 
 static int get_bool_value(const char *s) {
-  if (!s || !(s[0]))
+  if (!s || !(s[0])) {
     return 1;
-  if (s[0] == '0' || s[0] == 'n' || s[0] == 'N' || s[0] == 'f' || s[0] == 'F')
+  }
+  if (s[0] == '0' || s[0] == 'n' || s[0] == 'N' || s[0] == 'f' || s[0] == 'F') {
     return 0;
-  if (s[0] == 'y' || s[0] == 'Y' || s[0] == 't' || s[0] == 'T')
+  }
+  if (s[0] == 'y' || s[0] == 'Y' || s[0] == 't' || s[0] == 'T') {
     return 1;
-  if (s[0] > '0' && s[0] <= '9')
+  }
+  if (s[0] > '0' && s[0] <= '9') {
     return 1;
-  if (!strcmp(s, "off") || !strcmp(s, "OFF") || !strcmp(s, "Off"))
+  }
+  if (!strcmp(s, "off") || !strcmp(s, "OFF") || !strcmp(s, "Off")) {
     return 0;
-  if (!strcmp(s, "on") || !strcmp(s, "ON") || !strcmp(s, "On"))
+  }
+  if (!strcmp(s, "on") || !strcmp(s, "ON") || !strcmp(s, "On")) {
     return 1;
+  }
   TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Unknown boolean value: %s. You can use on/off, yes/no, 1/0, true/false.\n", s);
   exit(-1);
 }
@@ -1792,13 +1872,15 @@ static void set_option(int c, char *value) {
 
   switch (c) {
   case 'K':
-    if (get_bool_value(value))
+    if (get_bool_value(value)) {
       turn_params.allocation_default_address_family = ALLOCATION_DEFAULT_ADDRESS_FAMILY_KEEP;
+    }
     break;
   case 'A':
     if (value && strlen(value) > 0) {
-      if (*value == '=')
+      if (*value == '=') {
         ++value;
+      }
       if (!strcmp(value, "ipv6")) {
         turn_params.allocation_default_address_family = ALLOCATION_DEFAULT_ADDRESS_FAMILY_IPV6;
       } else if (!strcmp(value, "keep")) {
@@ -1822,12 +1904,6 @@ static void set_option(int c, char *value) {
       turn_params.oauth = get_bool_value(value);
     }
     break;
-  case NO_SSLV2_OPT:
-    // deprecated
-    break;
-  case NO_SSLV3_OPT:
-    // deprecated
-    break;
   case NO_TLSV1_OPT:
     turn_params.no_tlsv1 = get_bool_value(value);
     break;
@@ -1845,12 +1921,14 @@ static void set_option(int c, char *value) {
     turn_params.net_engine_version = (NET_ENG_VERSION)ne;
   } break;
   case DH566_OPT:
-    if (get_bool_value(value))
+    if (get_bool_value(value)) {
       turn_params.dh_key_size = DH_566;
+    }
     break;
   case DH1066_OPT:
-    if (get_bool_value(value))
+    if (get_bool_value(value)) {
       turn_params.dh_key_size = DH_1066;
+    }
     break;
   case EC_CURVE_NAME_OPT:
     STRCPY(turn_params.ec_curve_name, value);
@@ -2013,8 +2091,9 @@ static void set_option(int c, char *value) {
             TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "-X : Wrong address format: %s\n", div);
           } else {
             ioa_addr_add_mapping(&apub, &apriv);
-            if (add_ip_list_range((const char *)div, NULL, &turn_params.ip_whitelist) == 0)
+            if (add_ip_list_range((const char *)div, NULL, &turn_params.ip_whitelist) == 0) {
               TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Whitelisting external-ip private part: %s\n", div);
+            }
           }
         }
         free(nval);
@@ -2069,8 +2148,11 @@ static void set_option(int c, char *value) {
       anon_credentials = 1;
     }
     break;
-  case NO_SOFTWARE_ATTRIBUTE_OPT:
-    turn_params.no_software_attribute = get_bool_value(value);
+  case DEPRECATED_NO_SOFTWARE_ATTRIBUTE_OPT:
+    turn_params.software_attribute = !(bool)get_bool_value(value);
+    break;
+  case SOFTWARE_ATTRIBUTE_OPT:
+    turn_params.software_attribute = (bool)get_bool_value(value);
     break;
   case 'f':
     turn_params.fingerprint = get_bool_value(value);
@@ -2122,6 +2204,12 @@ static void set_option(int c, char *value) {
   case PROMETHEUS_PORT_OPT:
     turn_params.prometheus_port = atoi(value);
     break;
+  case PROMETHEUS_ADDRESS_OPT:
+    STRCPY(turn_params.prometheus_address, value);
+    break;
+  case PROMETHEUS_PATH_OPT:
+    STRCPY(turn_params.prometheus_path, value);
+    break;
   case PROMETHEUS_ENABLE_USERNAMES_OPT:
     turn_params.prometheus_username_labels = 1;
     break;
@@ -2146,9 +2234,6 @@ static void set_option(int c, char *value) {
     use_tltc = 1;
     turn_params.ct = TURN_CREDENTIALS_LONG_TERM;
     use_lt_credentials = 1;
-    break;
-  case AUTH_SECRET_TS_EXP:
-    TURN_LOG_FUNC(TURN_LOG_LEVEL_WARNING, "WARNING: Option --secret-ts-exp-time deprecated and has no effect.\n");
     break;
   case 'r':
     set_default_realm_name(value);
@@ -2204,6 +2289,9 @@ static void set_option(int c, char *value) {
   case CERT_FILE_OPT:
     STRCPY(turn_params.cert_file, value);
     break;
+  case RPK_ENABLED_OPT:
+    turn_params.rpk_enabled = get_bool_value(value);
+    break;
   case CA_FILE_OPT:
     STRCPY(turn_params.ca_cert_file, value);
     break;
@@ -2232,12 +2320,14 @@ static void set_option(int c, char *value) {
     add_tls_alternate_server(value);
     break;
   case ALLOWED_PEER_IPS:
-    if (add_ip_list_range(value, NULL, &turn_params.ip_whitelist) == 0)
+    if (add_ip_list_range(value, NULL, &turn_params.ip_whitelist) == 0) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "White listing: %s\n", value);
+    }
     break;
   case DENIED_PEER_IPS:
-    if (add_ip_list_range(value, NULL, &turn_params.ip_blacklist) == 0)
+    if (add_ip_list_range(value, NULL, &turn_params.ip_blacklist) == 0) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Black listing: %s\n", value);
+    }
     break;
   case CIPHER_LIST_OPT:
     STRCPY(turn_params.cipher_list, value);
@@ -2264,6 +2354,9 @@ static void set_option(int c, char *value) {
     break;
   case RESPONSE_ORIGIN_ONLY_WITH_RFC5780_OPT:
     turn_params.response_origin_only_with_rfc5780 = get_bool_value(value);
+    break;
+  case RESPOND_HTTP_UNSUPPORTED_OPT:
+    turn_params.respond_http_unsupported = get_bool_value(value);
     break;
 
   /* these options have been already taken care of before: */
@@ -2369,9 +2462,10 @@ static void read_config_file(int argc, char **argv, int pass) {
     FILE *f = NULL;
     char *full_path_to_config_file = NULL;
 
-    full_path_to_config_file = find_config_file(config_file, pass);
-    if (full_path_to_config_file)
+    full_path_to_config_file = find_config_file(config_file);
+    if (full_path_to_config_file) {
       f = fopen(full_path_to_config_file, "r");
+    }
 
     if (f) {
 
@@ -2380,18 +2474,22 @@ static void read_config_file(int argc, char **argv, int pass) {
 
       for (;;) {
         char *s = fgets(sbuf, sizeof(sbuf) - 1, f);
-        if (!s)
+        if (!s) {
           break;
+        }
         s = skip_blanks(s);
-        if (s[0] == '#')
+        if (s[0] == '#') {
           continue;
-        if (!s[0])
+        }
+        if (!s[0]) {
           continue;
+        }
         size_t slen = strlen(s);
 
         // strip white-spaces from config file lines end
-        while (slen && isspace(s[slen - 1]))
+        while (slen && isspace(s[slen - 1])) {
           s[--slen] = 0;
+        }
         if (slen) {
           int c = 0;
           char *value = NULL;
@@ -2542,8 +2640,9 @@ static int adminmain(int argc, char **argv) {
       break;
     case 'X':
       ct = TA_DEL_SECRET;
-      if (optarg)
+      if (optarg) {
         STRCPY(secret, optarg);
+      }
       break;
     case DEL_ALL_AUTH_SECRETS_OPT:
       ct = TA_DEL_SECRET;
@@ -2584,7 +2683,7 @@ static int adminmain(int argc, char **argv) {
         TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Wrong user name structure or symbols, choose another name: %s\n", user);
         exit(-1);
       }
-      if (SASLprep((uint8_t *)user) < 0) {
+      if (!SASLprep((uint8_t *)user)) {
         TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Wrong user name: %s\n", user);
         exit(-1);
       }
@@ -2592,14 +2691,14 @@ static int adminmain(int argc, char **argv) {
     case 'r':
       set_default_realm_name(optarg);
       STRCPY(realm, optarg);
-      if (SASLprep((uint8_t *)realm) < 0) {
+      if (!SASLprep((uint8_t *)realm)) {
         TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Wrong realm: %s\n", realm);
         exit(-1);
       }
       break;
     case 'p':
       STRCPY(pwd, optarg);
-      if (SASLprep((uint8_t *)pwd) < 0) {
+      if (!SASLprep((uint8_t *)pwd)) {
         TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Wrong password: %s\n", pwd);
         exit(-1);
       }
@@ -2650,8 +2749,9 @@ static int adminmain(int argc, char **argv) {
 
 #if !defined(TURN_NO_SQLITE)
   if (!strlen(turn_params.default_users_db.persistent_users_db.userdb) &&
-      (turn_params.default_users_db.userdb_type == TURN_USERDB_TYPE_SQLITE))
+      (turn_params.default_users_db.userdb_type == TURN_USERDB_TYPE_SQLITE)) {
     strncpy(turn_params.default_users_db.persistent_users_db.userdb, DEFAULT_USERDB_FILE, TURN_LONG_STRING_SIZE);
+  }
 #endif
 
   if (ct == TA_COMMAND_UNKNOWN) {
@@ -2677,13 +2777,15 @@ static int adminmain(int argc, char **argv) {
 static void print_features(unsigned long mfn) {
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Coturn Version %s\n", TURN_SOFTWARE);
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Max number of open files/sockets allowed for this process: %lu\n", mfn);
-  if (turn_params.net_engine_version == NEV_UDP_SOCKET_PER_ENDPOINT)
+  if (turn_params.net_engine_version == NEV_UDP_SOCKET_PER_ENDPOINT) {
     mfn = mfn / 3;
-  else
+  } else {
     mfn = mfn / 2;
+  }
   mfn = ((unsigned long)(mfn / 500)) * 500;
-  if (mfn < 500)
+  if (mfn < 500) {
     mfn = 500;
+  }
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO,
                 "Due to the open files/sockets limitation, max supported number of TURN Sessions possible is: %lu "
                 "(approximately)\n",
@@ -2707,29 +2809,17 @@ static void print_features(unsigned long mfn) {
 
 #if !TLS_SUPPORTED
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "TLS is not supported\n");
-#elif TLSv1_3_SUPPORTED
+#else
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "TLS 1.3 supported\n");
-#elif TLSv1_2_SUPPORTED
-  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "TLS 1.2 supported\n");
-#elif TLSv1_1_SUPPORTED
-  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "TLS 1.1 supported\n");
-#elif TLSv1_SUPPORTED
-  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "TLS 1.0 supported\n");
 #endif
 
 #if !DTLS_SUPPORTED
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "DTLS is not supported\n");
-#elif DTLSv1_2_SUPPORTED
+#else
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "DTLS 1.2 supported\n");
-#elif DTLS_SUPPORTED
-  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "DTLS supported\n");
 #endif
 
-#if ALPN_SUPPORTED
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "TURN/STUN ALPN supported\n");
-#else
-  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "TURN/STUN ALPN is not supported\n");
-#endif
 
   if (ENC_ALG_NUM == 0) {
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Third-party authorization (oAuth) is not supported\n");
@@ -2782,8 +2872,9 @@ static void print_features(unsigned long mfn) {
 #endif
 
 static void set_network_engine(void) {
-  if (turn_params.net_engine_version != NEV_UNKNOWN)
+  if (turn_params.net_engine_version != NEV_UNKNOWN) {
     return;
+  }
   turn_params.net_engine_version = NEV_UDP_SOCKET_PER_ENDPOINT;
 #if defined(SO_REUSEPORT)
 #if defined(__linux__) || defined(__LINUX__) || defined(__linux) || defined(linux__) || defined(LINUX) ||              \
@@ -2915,28 +3006,33 @@ int main(int argc, char **argv) {
   turn_params.no_dtls = 1;
 #endif
 
+  if (strstr(argv[0], "turnadmin")) {
+    return adminmain(argc, argv);
+  }
+
+  memset(&turn_params.default_users_db.ram_db, 0, sizeof(ram_users_db_t));
+  turn_params.default_users_db.ram_db.static_accounts = ur_string_map_create(free);
+
+  // Zero pass apply the log options.
+  read_config_file(argc, argv, 0);
+
   {
-    int cpus = get_system_number_of_cpus();
-    if (0 < cpus)
-      turn_params.cpus = get_system_number_of_cpus();
-    if (turn_params.cpus < DEFAULT_CPUS_NUMBER)
+    unsigned long cpus = get_system_active_number_of_cpus();
+    if (cpus > 0) {
+      turn_params.cpus = cpus;
+    }
+    if (turn_params.cpus < DEFAULT_CPUS_NUMBER) {
       turn_params.cpus = DEFAULT_CPUS_NUMBER;
-    else if (turn_params.cpus > MAX_NUMBER_OF_GENERAL_RELAY_SERVERS)
+    } else if (turn_params.cpus > MAX_NUMBER_OF_GENERAL_RELAY_SERVERS) {
       turn_params.cpus = MAX_NUMBER_OF_GENERAL_RELAY_SERVERS;
+    }
 
     turn_params.general_relay_servers_number = (turnserver_id)turn_params.cpus;
 
-    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "System cpu num is %lu\n", turn_params.cpus);
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "System cpu num is %lu\n", get_system_number_of_cpus());
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "System enable num is %lu\n", get_system_active_number_of_cpus());
   }
 
-  memset(&turn_params.default_users_db, 0, sizeof(default_users_db_t));
-  turn_params.default_users_db.ram_db.static_accounts = ur_string_map_create(free);
-
-  if (strstr(argv[0], "turnadmin"))
-    return adminmain(argc, argv);
-  // Zero pass apply the log options.
-  read_config_file(argc, argv, 0);
   // First pass read other config options
   read_config_file(argc, argv, 1);
 
@@ -2944,8 +3040,9 @@ int main(int argc, char **argv) {
   uo.u.m = long_options;
 
   while (((c = getopt_long(argc, argv, OPTIONS, uo.u.o, NULL)) != -1)) {
-    if (c != 'u')
+    if (c != 'u') {
       set_option(c, optarg);
+    }
   }
 
   // Second pass read -u options
@@ -3005,8 +3102,9 @@ int main(int argc, char **argv) {
 
 #if !defined(TURN_NO_SQLITE)
   if (!strlen(turn_params.default_users_db.persistent_users_db.userdb) &&
-      (turn_params.default_users_db.userdb_type == TURN_USERDB_TYPE_SQLITE))
+      (turn_params.default_users_db.userdb_type == TURN_USERDB_TYPE_SQLITE)) {
     strncpy(turn_params.default_users_db.persistent_users_db.userdb, DEFAULT_USERDB_FILE, TURN_LONG_STRING_SIZE);
+  }
 #endif
 
   argc -= optind;
@@ -3076,6 +3174,11 @@ int main(int argc, char **argv) {
     }
   }
 
+  if (use_web_admin && turn_params.no_tls) {
+    TURN_LOG_FUNC(TURN_LOG_LEVEL_WARNING, "CONFIG: WARNING: web-admin support not compatible with --no-tls option.\n");
+    use_web_admin = 0;
+  }
+
   openssl_setup();
 
   int local_listeners = 0;
@@ -3142,18 +3245,20 @@ int main(int argc, char **argv) {
     }
   }
 
-  if (socket_init())
+  if (socket_init()) {
     return -1;
+  }
 
 #if defined(WINDOWS)
 
-    // TODO: implement deamon!!! use windows server
+  // TODO: implement deamon!!! use windows server
 #else
   if (turn_params.turn_daemon) {
 #if !defined(TURN_HAS_DAEMON)
     pid_t pid = fork();
-    if (pid > 0)
+    if (pid > 0) {
       exit(0);
+    }
     if (pid < 0) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Cannot start daemon process\n");
       exit(-1);
@@ -3217,6 +3322,8 @@ int main(int argc, char **argv) {
   event_add(ev, NULL);
   ev = evsignal_new(turn_params.listener.event_base, SIGINT, shutdown_handler, NULL);
   event_add(ev, NULL);
+  ev = evsignal_new(turn_params.listener.event_base, SIGUSR1, drain_handler, NULL);
+  event_add(ev, NULL);
 #endif
 
   drop_privileges();
@@ -3232,63 +3339,10 @@ int main(int argc, char **argv) {
 ////////// OpenSSL locking ////////////////////////////////////////
 
 #if defined(OPENSSL_THREADS)
-#if OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0
-
-// array larger than anything that OpenSSL may need:
-static TURN_MUTEX_DECLARE(mutex_buf[256]);
-static int mutex_buf_initialized = 0;
-
-void coturn_locking_function(int mode, int n, const char *file, int line);
-void coturn_locking_function(int mode, int n, const char *file, int line) {
-  UNUSED_ARG(file);
-  UNUSED_ARG(line);
-  if (mutex_buf_initialized && (n < CRYPTO_num_locks())) {
-    if (mode & CRYPTO_LOCK)
-      TURN_MUTEX_LOCK(&(mutex_buf[n]));
-    else
-      TURN_MUTEX_UNLOCK(&(mutex_buf[n]));
-  }
-}
-
-void coturn_id_function(CRYPTO_THREADID *ctid);
-void coturn_id_function(CRYPTO_THREADID *ctid) {
-  UNUSED_ARG(ctid);
-  CRYPTO_THREADID_set_numeric(ctid, (unsigned long)pthread_self());
-}
-
-static int THREAD_setup(void) {
-  int i;
-  for (i = 0; i < CRYPTO_num_locks(); i++) {
-    TURN_MUTEX_INIT(&(mutex_buf[i]));
-  }
-
-  mutex_buf_initialized = 1;
-  CRYPTO_THREADID_set_callback(coturn_id_function);
-  CRYPTO_set_locking_callback(coturn_locking_function);
-  return 1;
-}
-
-int THREAD_cleanup(void) {
-  int i;
-
-  if (!mutex_buf_initialized)
-    return 0;
-
-  CRYPTO_THREADID_set_callback(NULL);
-  CRYPTO_set_locking_callback(NULL);
-  for (i = 0; i < CRYPTO_num_locks(); i++) {
-    TURN_MUTEX_DESTROY(&(mutex_buf[i]));
-  }
-
-  mutex_buf_initialized = 0;
-  return 1;
-}
-#else
 static int THREAD_setup(void) { return 1; }
 
 int THREAD_cleanup(void);
 int THREAD_cleanup(void) { return 1; }
-#endif /* OPENSSL_VERSION_NUMBER < OPENSSL_VERSION_1_1_0 */
 #endif /* defined(OPENSSL_THREADS) */
 
 static void adjust_key_file_name(char *fn, const char *file_title, int critical) {
@@ -3299,7 +3353,7 @@ static void adjust_key_file_name(char *fn, const char *file_title, int critical)
     goto keyerr;
   } else {
 
-    full_path_to_file = find_config_file(fn, 1);
+    full_path_to_file = find_config_file(fn);
     {
       FILE *f = full_path_to_file ? fopen(full_path_to_file, "r") : NULL;
       if (!f) {
@@ -3322,26 +3376,28 @@ static void adjust_key_file_name(char *fn, const char *file_title, int critical)
     return;
   }
 
-keyerr : {
+keyerr:
   if (critical) {
     turn_params.no_tls = 1;
     turn_params.no_dtls = 1;
     TURN_LOG_FUNC(TURN_LOG_LEVEL_WARNING, "cannot start TLS and DTLS listeners because %s file is not set properly\n",
                   file_title);
   }
-  if (full_path_to_file)
+  if (full_path_to_file) {
     free(full_path_to_file);
+  }
   return;
-}
 }
 
 static void adjust_key_file_names(void) {
-  if (turn_params.ca_cert_file[0])
+  if (turn_params.ca_cert_file[0]) {
     adjust_key_file_name(turn_params.ca_cert_file, "CA", 1);
+  }
   adjust_key_file_name(turn_params.cert_file, "certificate", 1);
   adjust_key_file_name(turn_params.pkey_file, "private key", 1);
-  if (turn_params.dh_file[0])
+  if (turn_params.dh_file[0]) {
     adjust_key_file_name(turn_params.dh_file, "DH key", 0);
+  }
 }
 static DH *get_dh566(void) {
 
@@ -3359,18 +3415,10 @@ static DH *get_dh566(void) {
   unsigned char dh566_g[] = {0x05};
   DH *dh;
 
-  if ((dh = DH_new()) == NULL)
-    return (NULL);
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-  dh->p = BN_bin2bn(dh566_p, sizeof(dh566_p), NULL);
-  dh->g = BN_bin2bn(dh566_g, sizeof(dh566_g), NULL);
-  if ((dh->p == NULL) || (dh->g == NULL)) {
-    DH_free(dh);
+  if ((dh = DH_new()) == NULL) {
     return (NULL);
   }
-#else
   DH_set0_pqg(dh, BN_bin2bn(dh566_p, sizeof(dh566_p), NULL), NULL, BN_bin2bn(dh566_g, sizeof(dh566_g), NULL));
-#endif
   return (dh);
 }
 
@@ -3395,18 +3443,10 @@ static DH *get_dh1066(void) {
   unsigned char dh1066_g[] = {0x02};
   DH *dh;
 
-  if ((dh = DH_new()) == NULL)
-    return (NULL);
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-  dh->p = BN_bin2bn(dh1066_p, sizeof(dh1066_p), NULL);
-  dh->g = BN_bin2bn(dh1066_g, sizeof(dh1066_g), NULL);
-  if ((dh->p == NULL) || (dh->g == NULL)) {
-    DH_free(dh);
+  if ((dh = DH_new()) == NULL) {
     return (NULL);
   }
-#else
   DH_set0_pqg(dh, BN_bin2bn(dh1066_p, sizeof(dh1066_p), NULL), NULL, BN_bin2bn(dh1066_g, sizeof(dh1066_g), NULL));
-#endif
   return (dh);
 }
 
@@ -3440,18 +3480,10 @@ static DH *get_dh2066(void) {
   unsigned char dh2066_g[] = {0x05};
   DH *dh;
 
-  if ((dh = DH_new()) == NULL)
-    return (NULL);
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-  dh->p = BN_bin2bn(dh2066_p, sizeof(dh2066_p), NULL);
-  dh->g = BN_bin2bn(dh2066_g, sizeof(dh2066_g), NULL);
-  if ((dh->p == NULL) || (dh->g == NULL)) {
-    DH_free(dh);
+  if ((dh = DH_new()) == NULL) {
     return (NULL);
   }
-#else
   DH_set0_pqg(dh, BN_bin2bn(dh2066_p, sizeof(dh2066_p), NULL), NULL, BN_bin2bn(dh2066_g, sizeof(dh2066_g), NULL));
-#endif
   return (dh);
 }
 
@@ -3462,8 +3494,6 @@ static int pem_password_func(char *buf, int size, int rwflag, void *password) {
   buf[size - 1] = 0;
   return (strlen(buf));
 }
-
-#if ALPN_SUPPORTED
 
 static int ServerALPNCallback(SSL *ssl, const unsigned char **out, unsigned char *outlen, const unsigned char *in,
                               unsigned int inlen, void *arg) {
@@ -3480,8 +3510,9 @@ static int ServerALPNCallback(SSL *ssl, const unsigned char **out, unsigned char
   const unsigned char *ptr = in;
   while (ptr < (in + inlen)) {
     unsigned char current_len = *ptr;
-    if (ptr + 1 + current_len > in + inlen)
+    if (ptr + 1 + current_len > in + inlen) {
       break;
+    }
     if ((!turn_params.no_stun) && (current_len == sa_len) && (memcmp(ptr + 1, STUN_ALPN, sa_len) == 0)) {
       *out = ptr + 1;
       *outlen = sa_len;
@@ -3503,24 +3534,19 @@ static int ServerALPNCallback(SSL *ssl, const unsigned char **out, unsigned char
     ptr += 1 + current_len;
   }
 
-  if (found_http)
+  if (found_http) {
     return SSL_TLSEXT_ERR_OK;
+  }
 
   return SSL_TLSEXT_ERR_NOACK; //???
 }
-
-#endif
 
 static void set_ctx(SSL_CTX **out, const char *protocol, const SSL_METHOD *method) {
   SSL_CTX *ctx = SSL_CTX_new(method);
   int err = 0;
   int rc = 0;
-#if ALPN_SUPPORTED
   SSL_CTX_set_alpn_select_cb(ctx, ServerALPNCallback, NULL);
-#endif
-
   SSL_CTX_set_default_passwd_cb_userdata(ctx, turn_params.tls_password);
-
   SSL_CTX_set_default_passwd_cb(ctx, pem_password_func);
 
   if (!(turn_params.cipher_list[0])) {
@@ -3533,10 +3559,7 @@ static void set_ctx(SSL_CTX **out, const char *protocol, const SSL_METHOD *metho
 
   SSL_CTX_set_cipher_list(ctx, turn_params.cipher_list);
   SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
-
-#if TLSv1_3_SUPPORTED
   SSL_CTX_set_ciphersuites(ctx, turn_params.cipher_list);
-#endif
 
   if (!SSL_CTX_use_certificate_chain_file(ctx, turn_params.cert_file)) {
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: ERROR: no certificate found\n", protocol);
@@ -3612,11 +3635,6 @@ static void set_ctx(SSL_CTX **out, const char *protocol, const SSL_METHOD *metho
     }
 
     if (set_auto_curve) {
-#if SSL_SESSION_ECDH_AUTO_SUPPORTED
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-      SSL_CTX_set_ecdh_auto(ctx, 1);
-#endif
-#endif
       set_auto_curve = 0;
     }
   }
@@ -3639,12 +3657,13 @@ static void set_ctx(SSL_CTX **out, const char *protocol, const SSL_METHOD *metho
     }
 
     if (!dh) {
-      if (turn_params.dh_key_size == DH_566)
+      if (turn_params.dh_key_size == DH_566) {
         dh = get_dh566();
-      else if (turn_params.dh_key_size == DH_1066)
+      } else if (turn_params.dh_key_size == DH_1066) {
         dh = get_dh1066();
-      else
+      } else {
         dh = get_dh2066();
+      }
     }
 
     if (!dh) {
@@ -3714,6 +3733,17 @@ static void set_ctx(SSL_CTX **out, const char *protocol, const SSL_METHOD *metho
     SSL_CTX_free(*out);
     *out = ctx;
   }
+
+#if OPENSSL_VERSION_NUMBER >= 0x30200010L
+  if (turn_params.rpk_enabled) {
+    unsigned char cert_type = TLSEXT_cert_type_rpk;
+    if (!SSL_CTX_set1_server_cert_type(ctx, &cert_type, 1)) {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "Could not enable raw public keys functionality (RFC7250)\n");
+    } else {
+      TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Raw Public Keys (RFC7250) enabled!\n");
+    }
+  }
+#endif
 }
 
 static void openssl_load_certificates(void);
@@ -3757,22 +3787,6 @@ static void openssl_load_certificates(void) {
 
   TURN_MUTEX_LOCK(&turn_params.tls_mutex);
   if (!turn_params.no_tls) {
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-    set_ctx(&turn_params.tls_ctx, "TLS", TLSv1_2_server_method()); /*openssl-1.0.2 version specific API */
-    if (turn_params.no_tlsv1) {
-      SSL_CTX_set_options(turn_params.tls_ctx, SSL_OP_NO_TLSv1);
-    }
-#if TLSv1_1_SUPPORTED
-    if (turn_params.no_tlsv1_1) {
-      SSL_CTX_set_options(turn_params.tls_ctx, SSL_OP_NO_TLSv1_1);
-    }
-#if TLSv1_2_SUPPORTED
-    if (turn_params.no_tlsv1_2) {
-      SSL_CTX_set_options(turn_params.tls_ctx, SSL_OP_NO_TLSv1_2);
-    }
-#endif
-#endif
-#else // OPENSSL_VERSION_NUMBER < 0x10100000L
     set_ctx(&turn_params.tls_ctx, "TLS", TLS_server_method());
     if (turn_params.no_tlsv1) {
       SSL_CTX_set_min_proto_version(turn_params.tls_ctx, TLS1_1_VERSION);
@@ -3780,36 +3794,16 @@ static void openssl_load_certificates(void) {
     if (turn_params.no_tlsv1_1) {
       SSL_CTX_set_min_proto_version(turn_params.tls_ctx, TLS1_2_VERSION);
     }
-#if TLSv1_3_SUPPORTED
     if (turn_params.no_tlsv1_2) {
       SSL_CTX_set_min_proto_version(turn_params.tls_ctx, TLS1_3_VERSION);
     }
-#endif
-#endif // OPENSSL_VERSION_NUMBER < 0x10100000L
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "TLS cipher suite: %s\n", turn_params.cipher_list);
   }
 
   if (!turn_params.no_dtls) {
 #if !DTLS_SUPPORTED
     TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "ERROR: DTLS is not supported.\n");
-#elif OPENSSL_VERSION_NUMBER < 0x10000000L
-    TURN_LOG_FUNC(
-        TURN_LOG_LEVEL_WARNING,
-        "WARNING: TURN Server was compiled with rather old OpenSSL version, DTLS may not be working correctly.\n");
 #else
-#if OPENSSL_VERSION_NUMBER < 0x10100000L // before openssl-1.1.0 no version independent API
-#if DTLSv1_2_SUPPORTED
-    set_ctx(&turn_params.dtls_ctx, "DTLS", DTLSv1_2_server_method()); // openssl-1.0.2
-    if (turn_params.no_tlsv1_2) {
-      SSL_CTX_set_options(turn_params.dtls_ctx, SSL_OP_NO_DTLSv1_2);
-    }
-#else
-    set_ctx(&turn_params.dtls_ctx, "DTLS", DTLSv1_server_method()); // < openssl-1.0.2
-#endif
-    if (turn_params.no_tlsv1 || turn_params.no_tlsv1_1) {
-      SSL_CTX_set_options(turn_params.dtls_ctx, SSL_OP_NO_DTLSv1);
-    }
-#else  // OPENSSL_VERSION_NUMBER < 0x10100000L
     set_ctx(&turn_params.dtls_ctx, "DTLS", DTLS_server_method());
     if (turn_params.no_tlsv1 || turn_params.no_tlsv1_1) {
       SSL_CTX_set_min_proto_version(turn_params.dtls_ctx, DTLS1_2_VERSION);
@@ -3817,7 +3811,6 @@ static void openssl_load_certificates(void) {
     if (turn_params.no_tlsv1_2) {
       SSL_CTX_set_max_proto_version(turn_params.dtls_ctx, DTLS1_VERSION);
     }
-#endif // OPENSSL_VERSION_NUMBER < 0x10100000L
     setup_dtls_callbacks(turn_params.dtls_ctx);
     TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "DTLS cipher suite: %s\n", turn_params.cipher_list);
 #endif
@@ -3828,8 +3821,9 @@ static void openssl_load_certificates(void) {
 static void reload_ssl_certs(evutil_socket_t sock, short events, void *args) {
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Reloading TLS certificates and keys\n");
   openssl_load_certificates();
-  if (turn_params.tls_ctx_update_ev != NULL)
+  if (turn_params.tls_ctx_update_ev != NULL) {
     event_active(turn_params.tls_ctx_update_ev, EV_READ, 0);
+  }
 
   UNUSED_ARG(sock);
   UNUSED_ARG(events);
@@ -3838,7 +3832,15 @@ static void reload_ssl_certs(evutil_socket_t sock, short events, void *args) {
 
 static void shutdown_handler(evutil_socket_t sock, short events, void *args) {
   TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Terminating on signal %d\n", sock);
-  turn_params.stop_turn_server = 1;
+  turn_params.stop_turn_server = true;
+
+  UNUSED_ARG(events);
+  UNUSED_ARG(args);
+}
+
+static void drain_handler(evutil_socket_t sock, short events, void *args) {
+  TURN_LOG_FUNC(TURN_LOG_LEVEL_INFO, "Draining then terminating on signal %d\n", sock);
+  enable_drain_mode();
 
   UNUSED_ARG(events);
   UNUSED_ARG(args);
