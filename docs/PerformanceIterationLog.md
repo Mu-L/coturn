@@ -21,6 +21,98 @@ Five commits on `claude/beautiful-black-c3b741` between `727ec2ab`
 | 4 | `a6f6767f` | Inline `get_ioa_addr_len()` via `ns_turn_ioaddr.h` |
 | 5 | `321a2d18` | Inline `addr_cpy()` via `ns_turn_ioaddr.h` |
 
+Current `relay-recvmmsg` follow-up:
+
+| # | Commit | Optimization |
+|---|---|---|
+| 6 | `54c589d0` / `4b1a8d71` | Initial Linux `recvmmsg` batching for UDP listener and connected relay sockets |
+| 7 | `8d9a7292` | Share the existing `--udp-recvmmsg` flag across listener and relay UDP paths; remove separate relay flag; use the shared ancillary-data parser in `dtls_listener` |
+| 8 | `d48686b7` | Reduce relay per-socket `recvmmsg` state from 16 x 64 KiB cmsg buffers to TTL/TOS-sized buffers, avoid an extra would-block fallback `recvmsg`, and clean up all preallocated buffers after partial batches |
+| 9 | `ad81705e` | Add per-engine `recvmmsg` occupancy counters and 10 s log summaries (`calls`, `packets`, `avg_batch`, `wouldblock`, `unavailable`, `no_buffer`, batch-size histogram) |
+| 10 | `388b15d4` | Move connected relay UDP `recvmmsg` scratch from per-socket state to per-engine/per-thread state |
+| 11 | `4c4fd67e` | Make the occupancy summaries opt-in behind `--udp-recvmmsg-log`, so `--udp-recvmmsg` can ship without periodic stats logs |
+
+Validation after #7-#11:
+
+- Local `cmake -S . -B build -DBUILD_TESTING=ON` passed.
+- Local `cmake --build build --parallel 8` passed.
+- Local `ctest --test-dir build --output-on-failure` passed 3/3.
+- Local `build/bin/turnserver --udp-recvmmsg --udp-recvmmsg-log --version`
+  parsed both flags and printed `4.11.0`.
+- Linux Docker `turnserver` build passed after #7, after #8, and after #10.
+
+Shipping cleanup learning: keep the occupancy counters in place because they
+are low overhead and useful for DigitalOcean diagnostics, but keep the periodic
+summaries off by default. Use `--udp-recvmmsg-log` only during measured runs
+where the log stream is part of the observation.
+
+DigitalOcean check on 2026-05-09:
+
+- Reused the existing `c-4` droplets in `nyc1`: turnserver public
+  `157.230.3.102`, private `10.116.0.2`; loadgen public `167.99.153.216`,
+  private `10.116.0.3`. Droplets were left running between steps.
+- Built fresh current artifacts from `d48686b7` on both droplets under
+  `/root/coturn_recvmmsg_current`.
+- Same-binary `--udp-recvmmsg` off/on, `-Y packet -m 1 -l 120`, 5 alternating
+  30 s rounds each:
+  - off mean 154,527, median 154,596, stdev 3,467
+  - on mean 149,994, median 153,011, stdev 7,174
+  - on was -2.9 % by mean and -1.0 % by median
+- Same-binary `--udp-recvmmsg` off/on, `-Y packet -m 100 -l 120`, 5 alternating
+  rounds each. The client completed before the 30 s timeout and landed in two
+  send-volume buckets, so treat this as a coarse many-connection signal:
+  - off mean 59,432, median 65,071, stdev 7,952
+  - on mean 59,640, median 65,421, stdev 7,963
+  - on was +0.3 % by mean and +0.5 % by median
+- Follow-up `m=100 -n 1000` run, 3 alternating rounds each, derived receive
+  count from `tot_recv_bytes / 120` because this log format omits
+  `tot_recv_msgs`:
+  - off mean 8,540, median 8,990, stdev 1,004
+  - on mean 8,857, median 8,749, stdev 759
+  - on was +3.7 % by mean and -2.7 % by median
+
+Learning: the corrected relay `recvmmsg` implementation is now buildable and
+much safer for many connections, but these droplet runs still do not show a
+clear throughput win. Keep `--udp-recvmmsg` opt-in for now. The next useful
+step is to instrument actual batch occupancy on connected relay sockets; if
+most readiness events return one datagram, `recvmmsg` will mostly add setup
+work without reducing syscalls.
+
+DigitalOcean occupancy check on 2026-05-09:
+
+- Built fresh current artifacts from `388b15d4` on both droplets under
+  `/root/coturn_recvmmsg_current`.
+- Same-binary `--udp-recvmmsg` off/on, `-Y packet -m 1 -l 120`, 3 alternating
+  30 s rounds each:
+  - off mean 153,133, median 153,608, stdev 4,383
+  - on mean 148,452, median 149,711, stdev 10,833
+  - on was -3.1 % by mean and -2.5 % by median
+- `m=1` occupancy from the on runs: 1,129,427 `recvmmsg` calls returned
+  17,660,300 packets, average batch 15.64. Histogram buckets:
+  `hist_1=1,353`, `hist_2=1,496`, `hist_3_4=3,707`,
+  `hist_5_8=14,817`, `hist_9_16=1,108,057`; 98.1 % of calls were in the
+  `9..16` bucket.
+- Same-binary `--udp-recvmmsg` off/on, `-Y packet -m 100 -l 120`, 3 alternating
+  runs each:
+  - off mean 55,443, median 50,679, stdev 8,369
+  - on mean 60,596, median 65,404, stdev 8,383
+  - on was +9.3 % by mean and +29.1 % by median, but the client again landed
+    in two send-volume buckets, so treat the throughput delta as noisy.
+- `m=100` occupancy from the on runs across all relay threads: 1,426,401
+  `recvmmsg` calls returned 16,188,946 packets, average batch 11.35.
+  Histogram buckets: `hist_1=83,057`, `hist_2=79,781`,
+  `hist_3_4=130,066`, `hist_5_8=188,259`, `hist_9_16=945,238`; 66.3 %
+  of calls were in the `9..16` bucket.
+
+Learning: receive-side occupancy is high. The earlier hypothesis that
+`recvmmsg` was mostly returning one packet is wrong for this harness. The
+remaining bottleneck is after receive: per-packet callbacks, TURN processing,
+and especially one `sendto` per relayed packet. The per-thread scratch change
+is still worth keeping for memory/cache behavior with thousands of sockets,
+but the next performance lever should be send-side batching or a design that
+passes batches deeper instead of immediately decomposing them back into
+single-packet callbacks.
+
 Alternating A/B run on the same droplet pair, m=1 packet flood, 30 s
 per run, with a 4 s warm-up between binary swaps:
 
@@ -33,7 +125,13 @@ The cumulative effect is what's visible.
 
 ## Test setup that was used
 
-Two `c-4` Ubuntu 24.04 droplets in `nyc1`, same VPC `default-nyc1`:
+Two `c-4` Ubuntu 24.04 droplets in `nyc1`, same VPC `default-nyc1`.
+Current active pair:
+
+- `coturn-turnserver` — public `157.230.3.102`, private `10.116.0.2`
+- `coturn-loadgen`    — public `167.99.153.216`, private `10.116.0.3`
+
+Older pair used for the iter 5 cumulative run:
 
 - `coturn-turnserver` — public `68.183.121.197`, private `10.116.0.2`
 - `coturn-loadgen`    — public `68.183.132.220`, private `10.116.0.3`
@@ -62,8 +160,9 @@ A small env file was written to `/tmp/coturn_perf_env.sh` on the local
 machine with the IPs / droplet IDs — recreate it from the current
 state of the DO account if it gets lost.
 
-The standard packet-flood command (matches CLAUDE.md baseline, runs
-*without* `--udp-recvmmsg`):
+The standard packet-flood command (matches CLAUDE.md baseline, runs without
+`--udp-recvmmsg`; add `--udp-recvmmsg` to `turnserver`, not the client, for the
+batched listener/relay receive path):
 
 ```bash
 timeout -s INT 30s /root/coturn/build/bin/turnutils_uclient \
@@ -119,25 +218,19 @@ That ~23 % syscall overhead is the next big lever. Halving it
 
 ## What didn't work
 
-### Default `--udp-recvmmsg=true` on Linux (tried in iter 1, reverted)
+### Default `--udp-recvmmsg=true` on Linux (tried in iter 1, kept opt-in)
 
-The flag exists and is wired to `receive_udp_batch_recvmmsg` in
-[dtls_listener.c](../src/apps/relay/dtls_listener.c), but **only on
-the listener socket** — the unconnected `udp_listen_s` that handles
-the *first* packet from a new client. Once `dtls_listener` calls
-`create_new_connected_udp_socket` (line ~583), subsequent
-client→relay traffic on that 5-tuple goes through a per-session
-*connected* UDP socket whose libevent callback is
-`socket_input_handler` → `socket_input_worker` →
-`udp_recvfrom` (single `recvmsg`). Same on the peer→relay direction.
+The flag now covers both the unconnected listener socket in
+[dtls_listener.c](../src/apps/relay/dtls_listener.c) and connected plain-UDP
+relay sockets in
+[ns_ioalib_engine_impl.c](../src/apps/relay/ns_ioalib_engine_impl.c). DTLS
+session sockets remain on the SSL read path and are not batched by the relay
+socket helper.
 
-In a steady-state packet flood with one client, almost zero packets
-hit the listener path, so flipping the default does nothing for this
-test. It would help a many-client / many-allocate workload, but
-that's not what the m=1 harness measures.
-
-Throughput parity confirmed across multiple A/B rounds; reverted to
-keep the baseline mental model in CLAUDE.md intact.
+Throughput parity or slight negative results were confirmed across multiple
+A/B rounds on `m=1` and `m=100`; keep this opt-in until batch occupancy
+instrumentation proves that real deployments commonly receive multiple queued
+datagrams per connected socket readiness event.
 
 ### Caching `get_relay_socket_ss` (iter 3) — no measurable wall-clock win
 
@@ -189,27 +282,20 @@ defensible and matches the iter 4/5 inlining direction.
 
 Ordered by expected impact for the m=1 packet-flood metric:
 
-1. **Extend `recvmmsg` into `socket_input_worker`** for plain UDP
-   non-DTLS sockets. The existing `try_again` loop in
-   [ns_ioalib_engine_impl.c:2683](../src/apps/relay/ns_ioalib_engine_impl.c#L2683)
-   already drains up to `MAX_TRIES = 16` packets per epoll wakeup via
-   16 single `recvmsg` calls. Replacing the inner read with a
-   `recvmmsg` of up to 16 messages saves ~15 syscalls per drain
-   iteration. At ~14 % `udp_recvmsg` kernel + ~6 % syscall machinery
-   on the recv side, plausible 8–12 % throughput. Risk: the function
-   is heavily branched (TCP / TLS / DTLS / UDP all share the body)
-   and state can change mid-loop (`s->tobeclosed` etc.); the cleanest
-   shape is a separate UDP-only helper called from
-   `socket_input_handler` *before* falling through to the existing
-   `socket_input_worker`, gated on `s->ssl == NULL && s->bev == NULL
-   && !s->parent_s`. **This is the highest-value remaining item.**
+1. **Batch the send side (`sendmmsg`) or pass receive batches deeper.** The
+   occupancy counters show receive batching is already working: `m=1` averaged
+   15.6 packets per call and `m=100` averaged 11.4. The code immediately
+   invokes the existing per-packet callback for each received datagram, and
+   each forwarded packet still pays a separate send syscall. The next
+   measurable lever is to queue per-thread outbound datagrams during a receive
+   batch and flush them with `sendmmsg`, or introduce a batch-aware callback
+   path for the hot UDP relay case.
 
-2. **`sendmmsg` batched send.** Each successful packet fires one
-   `sendto`. After (1) lands, when the receive loop hands a batch of
-   N packets to the dispatch layer in one go, the corresponding sends
-   could be coalesced into one `sendmmsg`. Requires a lightweight
-   per-thread send queue and a flush at the end of each event-loop
-   tick. Bigger refactor; expect another ~10 % if (1) lands.
+2. **Keep `recvmmsg` occupancy counters available while developing send
+   batching.** They are cheap enough for targeted performance builds and make
+   it obvious whether a benchmark is exercising one relay thread or all relay
+   threads. Consider hiding periodic logs behind a verbose/debug option before
+   shipping broadly.
 
 3. **GSO (`UDP_SEGMENT`)** on the send path. Linux can take one
    "large" datagram and segment it in the kernel for back-to-back
@@ -228,10 +314,9 @@ Ordered by expected impact for the m=1 packet-flood metric:
    body inline doesn't break ABI but does require a recompile of all
    consumers. Likely <1 % each but cheap to do.
 
-5. **Re-evaluate `--udp-recvmmsg` default after (1) lands.** Once
-   per-session sockets also batch, the listener path is no longer a
-   special case and turning it on by default becomes a free win for
-   multi-tenant servers without hurting m=1.
+5. **Re-evaluate `--udp-recvmmsg` default after instrumentation.** The current
+   measurements do not justify default-on. Revisit only if production-like
+   traces show frequent batch sizes above one and no latency/memory downside.
 
 ## Things investigated and ruled out (don't redo)
 

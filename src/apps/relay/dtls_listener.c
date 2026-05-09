@@ -68,7 +68,7 @@ typedef uint16_t in_port_t;
 
 #define COOKIE_SECRET_LENGTH (32)
 
-#define MAX_SINGLE_UDP_BATCH (16)
+#define MAX_SINGLE_UDP_BATCH IOA_UDP_RECVMMSG_MAX_BATCH
 #define MAX_RECVMMSG_BATCH MAX_SINGLE_UDP_BATCH
 
 #if defined(__linux__) && defined(CMSG_SPACE)
@@ -96,6 +96,7 @@ typedef uint16_t in_port_t;
 #define RECVMMSG_IPV6_CMSG_SZ (RECVMMSG_IPV6_TTL_CMSG_SZ + RECVMMSG_IPV6_TOS_CMSG_SZ)
 #define RECVMMSG_CMSG_SZ                                                                                               \
   ((RECVMMSG_IPV4_CMSG_SZ > RECVMMSG_IPV6_CMSG_SZ) ? RECVMMSG_IPV4_CMSG_SZ : RECVMMSG_IPV6_CMSG_SZ)
+#define RECVMMSG_CMSG_ALLOC_SZ ((RECVMMSG_CMSG_SZ) > 0 ? (RECVMMSG_CMSG_SZ) : 1)
 #endif
 
 #if !defined(WINDOWS)
@@ -133,7 +134,7 @@ struct dtls_listener_relay_server_info {
 struct dtls_listener_recvmmsg_state {
   struct mmsghdr msgs[MAX_RECVMMSG_BATCH];
   struct iovec iovecs[MAX_RECVMMSG_BATCH];
-  char cmsgs[MAX_RECVMMSG_BATCH][RECVMMSG_CMSG_SZ];
+  char cmsgs[MAX_RECVMMSG_BATCH][RECVMMSG_CMSG_ALLOC_SZ];
   ioa_addr src_addrs[MAX_RECVMMSG_BATCH];
   int ttls[MAX_RECVMMSG_BATCH];
   int toss[MAX_RECVMMSG_BATCH];
@@ -625,65 +626,7 @@ static udp_packet_classification_t classify_udp_packet(const uint8_t *data, size
 
   return UDP_PACKET_CLASS_INVALID;
 }
-
 #if defined(__linux__)
-typedef unsigned char listener_recv_ttl_t;
-typedef unsigned char listener_recv_tos_t;
-
-static void parse_udp_cmsg(struct msghdr *msg, int *ttl, int *tos) {
-  listener_recv_ttl_t recv_ttl = TTL_DEFAULT;
-  listener_recv_tos_t recv_tos = TOS_DEFAULT;
-  struct cmsghdr *cmsgh = NULL;
-
-  for (cmsgh = CMSG_FIRSTHDR(msg); cmsgh != NULL; cmsgh = CMSG_NXTHDR(msg, cmsgh)) {
-    const int l = cmsgh->cmsg_level;
-    const int t = cmsgh->cmsg_type;
-
-    switch (l) {
-    case IPPROTO_IP:
-      switch (t) {
-#if defined(IP_RECVTTL) && !defined(__sparc_v9__)
-      case IP_RECVTTL:
-      case IP_TTL:
-        recv_ttl = *((listener_recv_ttl_t *)CMSG_DATA(cmsgh));
-        break;
-#endif
-#if defined(IP_RECVTOS)
-      case IP_RECVTOS:
-      case IP_TOS:
-        recv_tos = *((listener_recv_tos_t *)CMSG_DATA(cmsgh));
-        break;
-#endif
-      default:;
-      };
-      break;
-    case IPPROTO_IPV6:
-      switch (t) {
-#if defined(IPV6_RECVHOPLIMIT) && !defined(__sparc_v9__)
-      case IPV6_RECVHOPLIMIT:
-      case IPV6_HOPLIMIT:
-        recv_ttl = *((listener_recv_ttl_t *)CMSG_DATA(cmsgh));
-        break;
-#endif
-#if defined(IPV6_RECVTCLASS)
-      case IPV6_RECVTCLASS:
-      case IPV6_TCLASS:
-        recv_tos = *((listener_recv_tos_t *)CMSG_DATA(cmsgh));
-        break;
-#endif
-      default:;
-      };
-      break;
-    default:;
-    };
-  }
-
-  *ttl = recv_ttl;
-  CORRECT_RAW_TTL(*ttl);
-  *tos = recv_tos;
-  CORRECT_RAW_TOS(*tos);
-}
-
 static int ensure_recvmmsg_state(dtls_listener_relay_server_type *server) {
   if (!server) {
     return -1;
@@ -701,12 +644,9 @@ static int ensure_recvmmsg_state(dtls_listener_relay_server_type *server) {
   }
 
   for (unsigned int i = 0; i < MAX_RECVMMSG_BATCH; ++i) {
-    server->recvmmsg_state->msgs[i].msg_hdr.msg_name = &(server->recvmmsg_state->src_addrs[i]);
-    server->recvmmsg_state->msgs[i].msg_hdr.msg_namelen = (socklen_t)server->slen0;
-    server->recvmmsg_state->msgs[i].msg_hdr.msg_iov = &(server->recvmmsg_state->iovecs[i]);
-    server->recvmmsg_state->msgs[i].msg_hdr.msg_iovlen = 1;
-    server->recvmmsg_state->msgs[i].msg_hdr.msg_control = server->recvmmsg_state->cmsgs[i];
-    server->recvmmsg_state->msgs[i].msg_hdr.msg_controllen = RECVMMSG_CMSG_SZ;
+    ioa_init_recvmmsg_hdr(&(server->recvmmsg_state->msgs[i]), &(server->recvmmsg_state->iovecs[i]),
+                          &(server->recvmmsg_state->src_addrs[i]), server->recvmmsg_state->cmsgs[i], RECVMMSG_CMSG_SZ,
+                          (socklen_t)server->slen0, NULL, 0);
     server->recvmmsg_state->elems[i] = ioa_network_buffer_allocate(server->e);
     if (!server->recvmmsg_state->elems[i]) {
       TURN_LOG_FUNC(TURN_LOG_LEVEL_ERROR, "%s: Cannot allocate recvmmsg batch buffer\n", __FUNCTION__);
@@ -730,6 +670,7 @@ static int receive_udp_batch_recvmmsg(dtls_listener_relay_server_type *server, e
     if (!state->elems[i]) {
       state->elems[i] = ioa_network_buffer_allocate(server->e);
       if (!state->elems[i]) {
+        ioa_engine_record_udp_recvmmsg_no_buffer(server->e);
         break;
       }
     }
@@ -739,11 +680,9 @@ static int receive_udp_batch_recvmmsg(dtls_listener_relay_server_type *server, e
     state->ttls[i] = TTL_IGNORE;
     state->toss[i] = TOS_IGNORE;
     state->packet_types[i] = UDP_PACKET_CLASS_INVALID;
-    state->iovecs[i].iov_base = ioa_network_buffer_data(state->elems[i]);
-    state->iovecs[i].iov_len = ioa_network_buffer_get_capacity_udp();
-    state->msgs[i].msg_hdr.msg_namelen = (socklen_t)server->slen0;
-    state->msgs[i].msg_hdr.msg_controllen = RECVMMSG_CMSG_SZ;
-    state->msgs[i].msg_len = 0;
+    ioa_init_recvmmsg_hdr(&(state->msgs[i]), &(state->iovecs[i]), &(state->src_addrs[i]), state->cmsgs[i],
+                          RECVMMSG_CMSG_SZ, (socklen_t)server->slen0, ioa_network_buffer_data(state->elems[i]),
+                          ioa_network_buffer_get_capacity_udp());
   }
 
   if (i == 0) {
@@ -752,12 +691,17 @@ static int receive_udp_batch_recvmmsg(dtls_listener_relay_server_type *server, e
 
   const int rc = recvmmsg(fd, state->msgs, i, MSG_DONTWAIT, NULL);
   if (rc <= 0) {
+    if (rc == 0 || would_block()) {
+      ioa_engine_record_udp_recvmmsg_wouldblock(server->e);
+    }
     return rc;
   }
 
+  ioa_engine_record_udp_recvmmsg_batch(server->e, rc);
+
   for (int j = 0; j < rc; ++j) {
     ioa_network_buffer_set_size(state->elems[j], state->msgs[j].msg_len);
-    parse_udp_cmsg(&(state->msgs[j].msg_hdr), &(state->ttls[j]), &(state->toss[j]));
+    ioa_parse_udp_recvmsg_cmsg(&(state->msgs[j].msg_hdr), &(state->ttls[j]), &(state->toss[j]), NULL);
     state->packet_types[j] =
         classify_udp_packet(ioa_network_buffer_data(state->elems[j]), ioa_network_buffer_get_size(state->elems[j]));
   }
@@ -939,6 +883,7 @@ static void udp_server_input_handler(evutil_socket_t fd, short what, void *arg) 
       if (errno == ENOSYS || errno == EINVAL || errno == EOPNOTSUPP) {
         TURN_LOG_FUNC(TURN_LOG_LEVEL_WARNING,
                       "%s: recvmmsg() is unavailable on this system, disabling udp-recvmmsg fast path\n", __FUNCTION__);
+        ioa_engine_record_udp_recvmmsg_unavailable(server->e);
         turn_params.udp_recvmmsg = false;
       } else if (would_block()) {
         prom_inc_packet_dropped(packets_dropped);

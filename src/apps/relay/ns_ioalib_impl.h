@@ -70,6 +70,7 @@ extern "C" {
 
 #define MAX_BUFFER_QUEUE_SIZE_PER_ENGINE (64)
 #define MAX_SOCKET_BUFFER_BACKLOG (16)
+#define IOA_UDP_RECVMMSG_MAX_BATCH (16)
 
 #define BUFFEREVENT_HIGH_WATERMARK (128 << 10)
 #define BUFFEREVENT_MAX_UDP_TO_TCP_WRITE (64 << 9)
@@ -159,6 +160,17 @@ struct _ioa_engine {
   size_t relays_number;
   size_t relay_addr_counter;
   ioa_addr *relay_addrs;
+#if defined(__linux__)
+  struct ioa_socket_recvmmsg_state *udp_recvmmsg_state;
+  uint64_t udp_recvmmsg_calls;
+  uint64_t udp_recvmmsg_packets;
+  uint64_t udp_recvmmsg_wouldblock;
+  uint64_t udp_recvmmsg_unavailable;
+  uint64_t udp_recvmmsg_no_buffer;
+  uint64_t udp_recvmmsg_hist[IOA_UDP_RECVMMSG_MAX_BATCH + 1];
+  uint64_t udp_recvmmsg_last_report_calls;
+  turn_time_t udp_recvmmsg_last_report_time;
+#endif
   redis_context_handle rch;
 };
 
@@ -270,6 +282,22 @@ int udp_send(ioa_socket_handle s, const ioa_addr *dest_addr, const char *buffer,
 int udp_recvfrom(evutil_socket_t fd, ioa_addr *orig_addr, const ioa_addr *like_addr, char *buffer, int buf_size,
                  int *ttl, int *tos, char *ecmsg, int flags, uint32_t *errcode);
 int ssl_read(evutil_socket_t fd, SSL *ssl, ioa_network_buffer_handle nbh, int verbose);
+
+#if defined(__linux__)
+void ioa_init_recvmmsg_hdr(struct mmsghdr *msg, struct iovec *iov, ioa_addr *src_addr, char *cmsg, size_t cmsg_len,
+                           socklen_t slen, void *buf, size_t len);
+#endif
+
+#if !defined(_MSC_VER) && defined(CMSG_SPACE)
+void ioa_parse_udp_recvmsg_cmsg(struct msghdr *msg, int *ttl, int *tos, uint32_t *errcode);
+#endif
+
+#if defined(__linux__)
+void ioa_engine_record_udp_recvmmsg_batch(ioa_engine_handle e, int rc);
+void ioa_engine_record_udp_recvmmsg_wouldblock(ioa_engine_handle e);
+void ioa_engine_record_udp_recvmmsg_unavailable(ioa_engine_handle e);
+void ioa_engine_record_udp_recvmmsg_no_buffer(ioa_engine_handle e);
+#endif
 
 int set_raw_socket_ttl_options(evutil_socket_t fd, int family);
 int set_raw_socket_tos_options(evutil_socket_t fd, int family);
